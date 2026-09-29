@@ -3,23 +3,33 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#1A1A1A"
-    android:gravity="center">
+    android:background="#1A1A1A">
 
     <TextView
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="TextFlow"
+        android:text="📚 TextFlow"
         android:textColor="#FFFFFF"
-        android:textSize="36sp"
-        android:textStyle="bold" />
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:padding="16dp"
+        android:gravity="center" />
 
     <TextView
-        android:layout_width="wrap_content"
+        android:id="@+id/infoText"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="📚 Читалка скоро здесь"
+        android:text="Ищу книги..."
         android:textColor="#AAAAAA"
-        android:textSize="18sp"
-        android:layout_marginTop="16dp" />
+        android:textSize="14sp"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/booksList"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false" />
 
 </LinearLayout>
