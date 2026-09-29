@@ -3,20 +3,26 @@ package com.ivangames.textflow
 import android.annotation.SuppressLint
 import android.content.SharedPreferences
 import android.graphics.BitmapFactory
+import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ImageSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.util.Base64
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import java.io.File
-import java.util.regex.Pattern
+import java.io.StringReader
 
 class ReaderActivity : AppCompatActivity() {
 
@@ -32,6 +38,9 @@ class ReaderActivity : AppCompatActivity() {
     private val PAGE_SIZE = 1000
 
     private lateinit var gestureDetector: GestureDetector
+
+    // Картинки, найденные в FB2
+    private val images = mutableMapOf<String, Drawable>()
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -99,7 +108,11 @@ class ReaderActivity : AppCompatActivity() {
                 }
                 val content = inputStream.bufferedReader().use { it.readText() }
                 val uriString = uri.toString().lowercase()
-                val text = if (uriString.contains(".fb2")) parseFb2WithImages(content) else plainText(content)
+                val text = if (uriString.contains(".fb2")) {
+                    parseFb2(content)
+                } else {
+                    SpannableStringBuilder(content)
+                }
                 runOnUiThread { setupPages(text) }
             } catch (e: Exception) {
                 runOnUiThread { readerText.text = "Ошибка: ${e.message}" }
@@ -112,120 +125,277 @@ class ReaderActivity : AppCompatActivity() {
             try {
                 val file = File(path)
                 if (!file.exists()) {
-                    runOnUiThread { readerText.text = "Файл не найден: $path" }
+                    runOnUiThread { readerText.text = "Файл не найден" }
                     return@Thread
                 }
                 val content = file.readText()
-                val text = if (path.lowercase().endsWith(".fb2")) parseFb2WithImages(content) else plainText(content)
+                val text = if (path.lowercase().endsWith(".fb2")) {
+                    parseFb2(content)
+                } else {
+                    SpannableStringBuilder(content)
+                }
                 runOnUiThread { setupPages(text) }
             } catch (e: Exception) {
                 runOnUiThread { readerText.text = "Ошибка: ${e.message}" }
             }
         }.start()
     }
-    // ============ ПАРСЕР FB2 С КАРТИНКАМИ ============
+// ============ ПРАВИЛЬНЫЙ ПАРСЕР FB2 ============
 
-    private fun parseFb2WithImages(xml: String): SpannableStringBuilder {
-        val sb = SpannableStringBuilder()
+private fun parseFb2(xml: String): SpannableStringBuilder {
+    images.clear()
+    val sb = SpannableStringBuilder()
 
-        try {
-            // 1. Собираем картинки из <binary id="...">...</binary>
-            val images = mutableMapOf<String, BitmapDrawable>()
-            val binaryPattern = Pattern.compile(
-                "<binary\\s+id=\"([^\"]+)\"[^>]*>([^<]+)</binary>",
-                Pattern.DOTALL
-            )
-            val binaryMatcher = binaryPattern.matcher(xml)
-            while (binaryMatcher.find()) {
-                val id = binaryMatcher.group(1) ?: continue
-                val base64Data = binaryMatcher.group(2)?.trim() ?: continue
-                try {
-                    val bytes = Base64.decode(base64Data, Base64.DEFAULT)
-                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    if (bitmap != null) {
-                        val drawable = BitmapDrawable(resources, bitmap)
-                        // Ограничиваем размер картинки (не больше 500px по ширине)
-                        val maxWidth = 500
-                        if (bitmap.width > maxWidth) {
-                            val ratio = maxWidth.toFloat() / bitmap.width
-                            drawable.setBounds(0, 0, maxWidth, (bitmap.height * ratio).toInt())
-                        } else {
-                            drawable.setBounds(0, 0, bitmap.width, bitmap.height)
+    try {
+        val factory = XmlPullParserFactory.newInstance()
+        factory.isNamespaceAware = false
+        val parser = factory.newPullParser()
+        parser.setInput(StringReader(xml))
+
+        var eventType = parser.eventType
+        var currentTag = ""
+        var inBinary = false
+        var currentBinaryId = ""
+        val binaryData = StringBuilder()
+        var inTitle = false
+        var inBody = false
+        var inParagraph = false
+
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            when (eventType) {
+                XmlPullParser.START_TAG -> {
+                    currentTag = parser.name.lowercase()
+                    when (currentTag) {
+                        "body" -> inBody = true
+                        "binary" -> {
+                            inBinary = true
+                            currentBinaryId = parser.getAttributeValue(null, "id") ?: ""
+                            binaryData.clear()
                         }
-                        images[id] = drawable
+                        "title" -> if (inBody) {
+                            inTitle = true
+                            sb.append("\n\n═══ ")
+                        }
+                        "p" -> if (inBody && !inBinary) {
+                            inParagraph = true
+                            sb.append("\n\n")
+                        }
+                        "empty-line" -> if (inBody) sb.append("\n")
+                        "image" -> {
+                            if (inBody) {
+                                val href = parser.getAttributeValue(null, "l:href")
+                                    ?: parser.getAttributeValue(null, "href")
+                                    ?: parser.getAttributeValue(
+                                        "http://www.w3.org/1999/xlink",
+                                        "href"
+                                    )
+                                if (href != null) {
+                                    val imageId = href.removePrefix("#")
+                                    val drawable = images[imageId]
+                                    if (drawable != null) {
+                                        sb.append("\n")
+                                        val start = sb.length
+                                        sb.append(" ")
+                                        sb.setSpan(
+                                            ImageSpan(drawable, ImageSpan.ALIGN_BOTTOM),
+                                            start, sb.length,
+                                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                                        )
+                                        sb.append("\n")
+                                    }
+                                }
+                            }
+                        }
                     }
-                } catch (e: Exception) {
-                    // Пропускаем битые картинки
+                }
+                XmlPullParser.TEXT -> {
+                    val text = parser.text
+                    if (inBinary) {
+                        binaryData.append(text)
+                    } else if (inBody && (inTitle || inParagraph)) {
+                        sb.append(text)
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    val tag = parser.name.lowercase()
+                    when (tag) {
+                        "body" -> inBody = false
+                        "binary" -> {
+                            if (inBinary && currentBinaryId.isNotEmpty()) {
+                                val drawable = decodeBase64Image(binaryData.toString())
+                                if (drawable != null) {
+                                    images[currentBinaryId] = drawable
+                                }
+                            }
+                            inBinary = false
+                            currentBinaryId = ""
+                            binaryData.clear()
+                        }
+                        "title" -> if (inBody) {
+                            inTitle = false
+                            sb.append(" ═══")
+                        }
+                        "p" -> inParagraph = false
+                    }
                 }
             }
-
-            // 2. Убираем <binary> из текста
-            val bodyStart = xml.indexOf("<body")
-            val bodyEnd = xml.indexOf("</body>")
-            if (bodyStart == -1 || bodyEnd == -1) {
-                return SpannableStringBuilder("Не удалось найти <body> в FB2")
-            }
-            val bodyXml = xml.substring(bodyStart, bodyEnd)
-
-            // 3. Заменяем <image .../> на маркеры [IMG:id]
-            val imagePattern = Pattern.compile("<image\\s+[^>]*l:href=\"#([^\"]+)\"[^>]*/>")
-            val imageMatcher = imagePattern.matcher(bodyXml)
-            val bodyWithMarkers = imageMatcher.replaceAll("[IMG:$1]")
-
-            // 4. Убираем все XML-теги, но сохраняем переносы для <p>, <title>, <section>
-            val cleaned = bodyWithMarkers
-                .replace(Regex("<p[^>]*>"), "\n\n")
-                .replace(Regex("<title[^>]*>"), "\n\n═══ ")
-                .replace(Regex("</title>"), " ═══\n")
-                .replace(Regex("<section[^>]*>"), "\n\n")
-                .replace(Regex("<empty-line[^>]*/>"), "\n")
-                .replace(Regex("<[^>]+>"), "")
-                .replace(Regex("[ \\t]+"), " ")
-                .replace(Regex("\\n{3,}"), "\n\n")
-                .trim()
-
-            // 5. Строим текст, вставляя картинки
-            var lastIndex = 0
-            val markerPattern = Pattern.compile("\\[IMG:([^\\]]+)\\]")
-            val markerMatcher = markerPattern.matcher(cleaned)
-
-            while (markerMatcher.find()) {
-                // Текст до картинки
-                sb.append(cleaned.substring(lastIndex, markerMatcher.start()))
-
-                // Картинка
-                val imageId = markerMatcher.group(1)
-                val drawable = images[imageId]
-                if (drawable != null) {
-                    val start = sb.length
-                    sb.append(" ")  // placeholder для картинки
-                    sb.setSpan(
-                        ImageSpan(drawable, ImageSpan.ALIGN_BOTTOM),
-                        start, sb.length,
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                    )
-                    sb.append("\n")
-                } else {
-                    sb.append("[картинка]")
-                }
-
-                lastIndex = markerMatcher.end()
-            }
-            // Остаток
-            sb.append(cleaned.substring(lastIndex))
-
-        } catch (e: Exception) {
-            return SpannableStringBuilder("Ошибка парсинга FB2: ${e.message}")
+            eventType = parser.next()
         }
-
-        return sb
+    } catch (e: Exception) {
+        sb.append("\n\nОшибка парсинга FB2: ${e.message}")
     }
 
-    private fun plainText(text: String): SpannableStringBuilder {
-        return SpannableStringBuilder(text)
+    // Убираем лишние переносы
+    val cleaned = sb.toString()
+        .replace(Regex("\\n{3,}"), "\n\n")
+        .trim()
+
+    // Пересобираем, но уже с картинками (нужно второй проход)
+    // Проще: сначала парсим картинки, потом парсим текст заново
+    return if (images.isEmpty() && sb.isEmpty()) {
+        SpannableStringBuilder("Не удалось прочитать FB2")
+    } else {
+        // Второй проход: теперь картинки в images, вставляем их
+        parseFb2WithImagesSecondPass(xml)
+    }
+}
+
+// Второй проход — вставляем картинки, т.к. они приходят до текста
+private fun parseFb2WithImagesSecondPass(xml: String): SpannableStringBuilder {
+    val sb = SpannableStringBuilder()
+    try {
+        val factory = XmlPullParserFactory.newInstance()
+        factory.isNamespaceAware = false
+        val parser = factory.newPullParser()
+        parser.setInput(StringReader(xml))
+
+        var eventType = parser.eventType
+        var inBody = false
+        var inTitle = false
+        var inParagraph = false
+        var inBinary = false
+        var currentBinaryId = ""
+        val binaryData = StringBuilder()
+
+        // Сначала соберём все картинки (первый проход)
+        // Второй проход: собираем текст
+
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            when (eventType) {
+                XmlPullParser.START_TAG -> {
+                    val tag = parser.name.lowercase()
+                    when (tag) {
+                        "body" -> inBody = true
+                        "binary" -> {
+                            inBinary = true
+                            currentBinaryId = parser.getAttributeValue(null, "id") ?: ""
+                            binaryData.clear()
+                        }
+                        "title" -> if (inBody) {
+                            inTitle = true
+                            sb.append("\n\n")
+                            val start = sb.length
+                            sb.append(" ")
+                            sb.setSpan(
+                                RelativeSizeSpan(1.4f),
+                                start, sb.length,
+                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                            sb.setSpan(
+                                StyleSpan(Typeface.BOLD),
+                                start, sb.length,
+                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                        "p" -> if (inBody && !inBinary) {
+                            inParagraph = true
+                            sb.append("\n\n")
+                        }
+                        "empty-line" -> if (inBody) sb.append("\n")
+                        "image" -> {
+                            if (inBody) {
+                                val href = parser.getAttributeValue(null, "l:href")
+                                    ?: parser.getAttributeValue(null, "href")
+                                if (href != null) {
+                                    val imageId = href.removePrefix("#")
+                                    val drawable = images[imageId]
+                                    if (drawable != null) {
+                                        sb.append("\n")
+                                        val start = sb.length
+                                        sb.append(" ")
+                                        sb.setSpan(
+                                            ImageSpan(drawable, ImageSpan.ALIGN_BOTTOM),
+                                            start, sb.length,
+                                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                                        )
+                                        sb.append("\n")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                XmlPullParser.TEXT -> {
+                    val text = parser.text
+                    if (inBinary) {
+                        binaryData.append(text)
+                    } else if (inBody && (inTitle || inParagraph)) {
+                        sb.append(text)
+                    }
+                }
+                XmlPullParser.END_TAG -> {
+                    val tag = parser.name.lowercase()
+                    when (tag) {
+                        "body" -> inBody = false
+                        "binary" -> {
+                            if (currentBinaryId.isNotEmpty() && images[currentBinaryId] == null) {
+                                val drawable = decodeBase64Image(binaryData.toString())
+                                if (drawable != null) {
+                                    images[currentBinaryId] = drawable
+                                }
+                            }
+                            inBinary = false
+                            currentBinaryId = ""
+                            binaryData.clear()
+                        }
+                        "title" -> inTitle = false
+                        "p" -> inParagraph = false
+                    }
+                }
+            }
+            eventType = parser.next()
+        }
+    } catch (e: Exception) {
+        sb.append("\n\nОшибка: ${e.message}")
     }
 
-    // ============ РАЗБИВКА НА СТРАНИЦЫ ============
+    return sb
+}
+
+// Декодирование base64 в Drawable с ограничением размера
+private fun decodeBase64Image(base64: String): Drawable? {
+    return try {
+        val cleanBase64 = base64.replace(Regex("\\s"), "")
+        val bytes = Base64.decode(cleanBase64, Base64.DEFAULT)
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        if (bitmap == null) return null
+        val drawable = BitmapDrawable(resources, bitmap)
+
+        // Максимальная ширина — 80% экрана
+        val screenWidth = resources.displayMetrics.widthPixels
+        val maxWidth = (screenWidth * 0.8f).toInt()
+        if (bitmap.width > maxWidth) {
+            val ratio = maxWidth.toFloat() / bitmap.width
+            drawable.setBounds(0, 0, maxWidth, (bitmap.height * ratio).toInt())
+        } else {
+            drawable.setBounds(0, 0, bitmap.width, bitmap.height)
+        }
+        drawable
+    } catch (e: Exception) {
+        null
+    }
+}
+    // ============ РАЗБИВКА НА СТРАНИЦЫ С ГЛАВАМИ ============
 
     private fun setupPages(fullText: SpannableStringBuilder) {
         if (fullText.isEmpty()) {
@@ -233,31 +403,53 @@ class ReaderActivity : AppCompatActivity() {
             return
         }
 
-        val newPages = mutableListOf<SpannableStringBuilder>()
-        var index = 0
         val textStr = fullText.toString()
+        val newPages = mutableListOf<SpannableStringBuilder>()
 
+        // Находим все позиции заголовков глав
+        val chapterPositions = mutableListOf<Int>()
+        val chapterPattern = Regex("═══[^═]+═══")
+        for (m in chapterPattern.findAll(textStr)) {
+            chapterPositions.add(m.range.first)
+        }
+
+        var index = 0
         while (index < textStr.length) {
+            // Проверяем, не начинается ли глава в этом месте
+            val chapterStart = chapterPositions.firstOrNull { it >= index }
             val end = minOf(index + PAGE_SIZE, textStr.length)
-            var cut = end
-            if (end < textStr.length) {
-                val searchStart = maxOf(index, end - 200)
-                val spaceIndex = textStr.lastIndexOf(' ', end)
-                val newlineIndex = textStr.lastIndexOf('\n', end)
-                cut = maxOf(newlineIndex, spaceIndex)
-                if (cut < searchStart) cut = end
+
+            var cut: Int
+
+            // Если глава начинается в середине страницы — режем перед главой
+            if (chapterStart != null && chapterStart > index && chapterStart < end) {
+                cut = chapterStart
+            } else {
+                // Обычная обрезка по границе
+                cut = end
+                if (end < textStr.length) {
+                    val searchStart = maxOf(index, end - 200)
+                    val spaceIndex = textStr.lastIndexOf(' ', end)
+                    val newlineIndex = textStr.lastIndexOf('\n', end)
+                    cut = maxOf(newlineIndex, spaceIndex)
+                    if (cut < searchStart) cut = end
+                }
             }
 
-            // Копируем кусок Spannable с сохранением спанов (картинок)
-            val pageText = SpannableStringBuilder(fullText, index, cut)
+            if (cut <= index) {
+                // Защита от бесконечного цикла
+                cut = end
+            }
 
-            // Проверяем: если картинка попала на границу — сдвигаем cut
-            // (упрощённо: оставляем как есть)
+            // Копируем кусок Spannable с сохранением спанов (картинок, стилей)
+            val pageText = SpannableStringBuilder(fullText, index, cut)
             newPages.add(pageText)
             index = cut
         }
 
         pages = newPages
+
+        // Восстанавливаем страницу
         currentPage = prefs.getInt(bookKey, 0).coerceIn(0, pages.size - 1)
         showPage()
     }
