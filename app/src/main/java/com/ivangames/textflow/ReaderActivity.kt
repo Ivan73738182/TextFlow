@@ -1,30 +1,78 @@
 package com.ivangames.textflow
 
+import android.annotation.SuppressLint
+import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
-import android.widget.ScrollView
+import android.view.GestureDetector
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 
 class ReaderActivity : AppCompatActivity() {
 
     private lateinit var readerTitle: TextView
     private lateinit var readerText: TextView
-    private lateinit var readerScroll: ScrollView
+    private lateinit var pageInfo: TextView
 
+    private var pages: List<String> = emptyList()
+    private var currentPage = 0
+    private lateinit var prefs: SharedPreferences
+    private var bookKey = ""
+
+    private val PAGE_SIZE = 1500
+
+    private lateinit var gestureDetector: GestureDetector
+
+    @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_reader)
 
         readerTitle = findViewById(R.id.readerTitle)
         readerText = findViewById(R.id.readerText)
-        readerScroll = findViewById(R.id.readerScroll)
+        pageInfo = findViewById(R.id.pageInfo)
 
-        // Файл может прийти двумя способами:
+        prefs = getSharedPreferences("reader_progress", MODE_PRIVATE)
+
+        // Жесты (свайпы)
+        gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onFling(
+                e1: MotionEvent?, e2: MotionEvent,
+                velocityX: Float, velocityY: Float
+            ): Boolean {
+                if (e1 == null) return false
+                val dx = e2.x - e1.x
+                val dy = e2.y - e1.y
+                if (Math.abs(dx) > Math.abs(dy)) {
+                    // Горизонтальный свайп
+                    if (dx > 100) {
+                        prevPage()
+                    } else if (dx < -100) {
+                        nextPage()
+                    }
+                    return true
+                }
+                return false
+            }
+
+            override fun onSingleTapUp(e: MotionEvent): Boolean {
+                // Тап справа — вперёд, слева — назад
+                val w = readerText.width
+                if (e.x > w * 0.6f) nextPage()
+                else if (e.x < w * 0.4f) prevPage()
+                return true
+            }
+        })
+
+        readerText.setOnTouchListener { _, event ->
+            gestureDetector.onTouchEvent(event)
+            true
+        }
+
+        // Загрузка книги
         val uri: Uri? = intent?.data
         val path: String? = intent.getStringExtra("book_path")
         val title: String = intent.getStringExtra("book_title") ?: "Книга"
@@ -32,8 +80,10 @@ class ReaderActivity : AppCompatActivity() {
         readerTitle.text = "📖 $title"
 
         if (uri != null) {
+            bookKey = uri.toString()
             loadFromUri(uri)
         } else if (path != null) {
+            bookKey = path
             loadFromPath(path)
         } else {
             readerText.text = "Файл не передан"
@@ -48,24 +98,12 @@ class ReaderActivity : AppCompatActivity() {
                     runOnUiThread { readerText.text = "Не удалось открыть файл" }
                     return@Thread
                 }
-
                 val content = inputStream.bufferedReader().use { it.readText() }
-
-                // Определяем формат по URI (если .fb2 — парсим XML)
                 val uriString = uri.toString().lowercase()
-                val text = if (uriString.contains(".fb2")) {
-                    parseFb2(content)
-                } else {
-                    content
-                }
-
-                runOnUiThread {
-                    readerText.text = text
-                }
+                val text = if (uriString.contains(".fb2")) parseFb2(content) else content
+                runOnUiThread { setupPages(text) }
             } catch (e: Exception) {
-                runOnUiThread {
-                    readerText.text = "Ошибка: ${e.message}"
-                }
+                runOnUiThread { readerText.text = "Ошибка: ${e.message}" }
             }
         }.start()
     }
@@ -78,40 +116,106 @@ class ReaderActivity : AppCompatActivity() {
                     runOnUiThread { readerText.text = "Файл не найден: $path" }
                     return@Thread
                 }
-
-                val content = BufferedReader(InputStreamReader(file.inputStream())).use { it.readText() }
-                val text = if (path.lowercase().endsWith(".fb2")) {
-                    parseFb2(content)
-                } else {
-                    content
-                }
-
-                runOnUiThread {
-                    readerText.text = text
-                }
+                val content = file.readText()
+                val text = if (path.lowercase().endsWith(".fb2")) parseFb2(content) else content
+                runOnUiThread { setupPages(text) }
             } catch (e: Exception) {
-                runOnUiThread {
-                    readerText.text = "Ошибка: ${e.message}"
-                }
+                runOnUiThread { readerText.text = "Ошибка: ${e.message}" }
             }
         }.start()
     }
 
-    // Простой парсер FB2: вытаскиваем текст из тегов <p>, <section>, <title>
+    // Разбиваем текст на страницы
+    private fun setupPages(text: String) {
+        if (text.isBlank()) {
+            readerText.text = "Пустой файл"
+            return
+        }
+
+        val newPages = mutableListOf<String>()
+        var index = 0
+        while (index < text.length) {
+            val end = minOf(index + PAGE_SIZE, text.length)
+            var cut = end
+            // Ищем ближайший перенос строки или пробел, чтобы не рвать слово
+            if (end < text.length) {
+                val searchStart = maxOf(index, end - 200)
+                val spaceIndex = text.lastIndexOf(' ', end)
+                val newlineIndex = text.lastIndexOf('\n', end)
+                cut = maxOf(newlineIndex, spaceIndex)
+                if (cut < searchStart) cut = end
+            }
+            newPages.add(text.substring(index, cut).trim())
+            index = cut
+        }
+
+        pages = newPages
+
+        // Восстанавливаем страницу
+        currentPage = prefs.getInt(bookKey, 0).coerceIn(0, pages.size - 1)
+        showPage()
+    }
+
+    private fun showPage() {
+        if (pages.isEmpty()) return
+        readerText.text = pages[currentPage]
+        pageInfo.text = "${currentPage + 1} / ${pages.size}"
+    }
+
+    private fun nextPage() {
+        if (currentPage < pages.size - 1) {
+            currentPage++
+            showPage()
+            saveProgress()
+        }
+    }
+
+    private fun prevPage() {
+        if (currentPage > 0) {
+            currentPage--
+            showPage()
+            saveProgress()
+        }
+    }
+
+    private fun saveProgress() {
+        prefs.edit().putInt(bookKey, currentPage).apply()
+    }
+
+    // Кнопки громкости
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        return when (keyCode) {
+            KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                nextPage()
+                true
+            }
+            KeyEvent.KEYCODE_VOLUME_UP -> {
+                prevPage()
+                true
+            }
+            else -> super.onKeyDown(keyCode, event)
+        }
+    }
+
+    // Простой парсер FB2
     private fun parseFb2(xml: String): String {
-        try {
-            // Убираем HTML/XML-теги, оставляя текст
-            val text = xml
+        return try {
+            xml
                 .replace(Regex("<\\?xml[^>]*\\?>"), "")
                 .replace(Regex("<!DOCTYPE[^>]*>"), "")
                 .replace(Regex("<binary[^>]*>.*?</binary>", RegexOption.DOT_MATCHES_ALL), "")
-                .replace(Regex("<[^>]+>"), "")  // убираем все теги
-                .replace(Regex("\\s+"), " ")    // нормализуем пробелы
+                .replace(Regex("<[^>]+>"), "")
+                .replace(Regex("[ \\t]+"), " ")
+                .replace(Regex("\\n{3,}"), "\n\n")
                 .trim()
-
-            return text.ifEmpty { "Не удалось извлечь текст из FB2" }
+                .ifEmpty { "Не удалось извлечь текст из FB2" }
         } catch (e: Exception) {
-            return "Ошибка парсинга FB2: ${e.message}"
+            "Ошибка парсинга FB2: ${e.message}"
         }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        saveProgress()
     }
 }
