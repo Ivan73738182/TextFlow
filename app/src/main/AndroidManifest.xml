@@ -21,10 +21,58 @@
             </intent-filter>
         </activity>
 
+        <!-- ReaderActivity — открывает книги -->
         <activity
             android:name=".ReaderActivity"
-            android:exported="false"
-            android:screenOrientation="portrait" />
+            android:exported="true"
+            android:screenOrientation="portrait">
+
+            <!-- TXT -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/plain" />
+                <data android:host="*" />
+                <data android:pathPattern=".*\\.txt" />
+            </intent-filter>
+
+            <!-- FB2 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:pathPattern=".*\\.fb2" />
+            </intent-filter>
+
+            <!-- HTML -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="file" />
+                <data android:mimeType="text/html" />
+                <data android:host="*" />
+                <data android:pathPattern=".*\\.html" />
+            </intent-filter>
+
+            <!-- Content URI (для современных файловых менеджеров) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/x-fictionbook+xml" />
+                <data android:mimeType="application/fb2" />
+                <data android:mimeType="application/x-mobipocket-ebook" />
+                <data android:mimeType="application/epub+zip" />
+            </intent-filter>
+
+        </activity>
 
     </application>
 
