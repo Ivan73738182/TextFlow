@@ -22,45 +22,63 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            addBookFromUri(uri)
+            try {
+                addBookFromUri(uri)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Ошибка добавления: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
 
-        infoText = findViewById(R.id.infoText)
-        booksList = findViewById(R.id.booksList)
-        booksList.layoutManager = LinearLayoutManager(this)
+        try {
+            setContentView(R.layout.activity_main)
 
-        // Загружаем сохранённые книги
-        books.addAll(BookStorage.loadBooks(this))
-        updateList()
+            infoText = findViewById(R.id.infoText)
+            booksList = findViewById(R.id.booksList)
+            booksList.layoutManager = LinearLayoutManager(this)
 
-        // Кнопка "Добавить книгу"
-        findViewById<com.google.android.material.button.MaterialButton>(R.id.addBookBtn)
-            .setOnClickListener {
-                pickFileLauncher.launch(arrayOf(
-                    "text/plain",
-                    "application/x-fictionbook+xml",
-                    "application/fb2",
-                    "text/html",
-                    "application/octet-stream",
-                    "*/*"
-                ))
+            // Пробуем загрузить сохранённые книги
+            try {
+                books.addAll(BookStorage.loadBooks(this))
+            } catch (e: Exception) {
+                android.util.Log.e("TextFlow", "Ошибка загрузки книг: ${e.message}")
             }
+
+            updateList()
+
+            findViewById<android.widget.Button>(R.id.addBookBtn).setOnClickListener {
+                try {
+                    pickFileLauncher.launch(arrayOf("*/*"))
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        } catch (e: Exception) {
+            showError(e)
+        }
+    }
+
+    private fun showError(e: Exception) {
+        val tv = TextView(this)
+        tv.text = "ОШИБКА:\n\n${e.message}\n\n${e.stackTraceToString().take(2000)}"
+        tv.setTextColor(0xFFFF0000.toInt())
+        tv.setBackgroundColor(0xFF000000.toInt())
+        tv.setPadding(24, 24, 24, 24)
+        tv.textSize = 12f
+        setContentView(tv)
     }
 
     private fun addBookFromUri(uri: Uri) {
         try {
-            // Берём постоянный доступ к файлу
             contentResolver.takePersistableUriPermission(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         } catch (e: Exception) {
-            // Если не получилось — не критично
+            // Не критично
         }
 
         val name = getFileName(uri) ?: "Книга"
@@ -72,7 +90,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Проверяем, нет ли уже такой книги
         if (books.any { it.uri == uri }) {
             Toast.makeText(this, "Книга уже добавлена", Toast.LENGTH_SHORT).show()
             return
@@ -86,18 +103,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun getFileName(uri: Uri): String? {
         var name: String? = null
-        if (uri.scheme == "content") {
-            val cursor: Cursor? = contentResolver.query(uri, null, null, null, null)
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (idx >= 0) name = it.getString(idx)
+        try {
+            if (uri.scheme == "content") {
+                val cursor: Cursor? = contentResolver.query(uri, null, null, null, null)
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        val idx = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) name = it.getString(idx)
+                    }
                 }
             }
+        } catch (e: Exception) {
         }
-        if (name == null) {
-            name = uri.path?.substringAfterLast("/")
-        }
+        if (name == null) name = uri.path?.substringAfterLast("/")
         return name
     }
 
@@ -110,13 +128,16 @@ class MainActivity : AppCompatActivity() {
 
         booksList.adapter = BookAdapter(books,
             onClick = { book ->
-                val intent = Intent(this, ReaderActivity::class.java)
-                intent.data = book.uri
-                intent.putExtra("book_title", book.title)
-                startActivity(intent)
+                try {
+                    val intent = Intent(this, ReaderActivity::class.java)
+                    intent.data = book.uri
+                    intent.putExtra("book_title", book.title)
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Ошибка открытия: ${e.message}", Toast.LENGTH_LONG).show()
+                }
             },
             onLongClick = { book ->
-                // Долгий тап — удалить книгу
                 books.remove(book)
                 BookStorage.saveBooks(this, books)
                 updateList()
