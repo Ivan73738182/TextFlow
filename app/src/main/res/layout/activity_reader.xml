@@ -3,17 +3,37 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#1A1A1A"
-    android:padding="16dp"
-    android:gravity="center">
+    android:background="#1A1A1A">
 
     <TextView
-        android:id="@+id/readerStatus"
+        android:id="@+id/readerTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="📖 Чтение"
-        android:textColor="#FFFFFF"
+        android:text="📖"
+        android:textColor="#FFC107"
         android:textSize="16sp"
-        android:gravity="center" />
+        android:textStyle="bold"
+        android:padding="12dp"
+        android:gravity="center"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <ScrollView
+        android:id="@+id/readerScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/readerText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Загрузка..."
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:lineSpacingExtra="6dp" />
+
+    </ScrollView>
 
 </LinearLayout>
