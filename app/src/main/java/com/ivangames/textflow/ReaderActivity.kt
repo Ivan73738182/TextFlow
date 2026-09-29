@@ -2,8 +2,18 @@ package com.ivangames.textflow
 
 import android.annotation.SuppressLint
 import android.content.SharedPreferences
+import android.graphics.BitmapFactory
+import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ImageSpan
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
+import android.util.Base64
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -17,7 +27,7 @@ class ReaderActivity : AppCompatActivity() {
     private lateinit var readerText: TextView
     private lateinit var pageInfo: TextView
 
-    private var pages: List<String> = emptyList()
+    private var pages: List<SpannableStringBuilder> = emptyList()
     private var currentPage = 0
     private lateinit var prefs: SharedPreferences
     private var bookKey = ""
@@ -73,6 +83,7 @@ class ReaderActivity : AppCompatActivity() {
 
         if (uri != null) {
             bookKey = uri.toString()
+            saveBookToLibrary(uri, title)
             loadFromUri(uri)
         } else if (path != null) {
             bookKey = path
@@ -92,7 +103,7 @@ class ReaderActivity : AppCompatActivity() {
                 }
                 val content = inputStream.bufferedReader().use { it.readText() }
                 val uriString = uri.toString().lowercase()
-                val text = if (uriString.contains(".fb2")) parseFb2(content) else content
+                val text = if (uriString.contains(".fb2")) parseFb2Full(content) else SpannableStringBuilder(content)
                 runOnUiThread { setupPages(text) }
             } catch (e: Exception) {
                 runOnUiThread { readerText.text = "Ошибка: ${e.message}" }
@@ -109,67 +120,177 @@ class ReaderActivity : AppCompatActivity() {
                     return@Thread
                 }
                 val content = file.readText()
-                val text = if (path.lowercase().endsWith(".fb2")) parseFb2(content) else content
+                val text = if (path.lowercase().endsWith(".fb2")) parseFb2Full(content) else SpannableStringBuilder(content)
                 runOnUiThread { setupPages(text) }
             } catch (e: Exception) {
                 runOnUiThread { readerText.text = "Ошибка: ${e.message}" }
             }
         }.start()
     }
+    // ============ ПАРСЕР FB2 С КАРТИНКАМИ И ГЛАВАМИ ============
 
-    // Простой парсер FB2: убираем теги, оставляем текст
-    private fun parseFb2(xml: String): String {
-        return try {
-            xml
-                // Убираем XML-заголовок и DOCTYPE
-                .replace(Regex("<\\?xml[^>]*\\?>"), "")
-                .replace(Regex("<!DOCTYPE[^>]*>"), "")
-                // Убираем <binary> целиком (base64-картинки)
-                .replace(Regex("<binary[^>]*>[\\s\\S]*?</binary>"), "")
-                // Заменяем переносы в тегах
-                .replace(Regex("<p[^>]*>"), "\n\n")
-                .replace(Regex("<title[^>]*>"), "\n\n═══ ")
-                .replace(Regex("</title>"), " ═══\n")
-                .replace(Regex("<section[^>]*>"), "\n\n")
-                .replace(Regex("<empty-line[^>]*/>"), "\n")
-                // Убираем все остальные теги
+    private fun parseFb2Full(xml: String): SpannableStringBuilder {
+        val sb = SpannableStringBuilder()
+
+        try {
+            // 1. Собираем ВСЕ картинки из <binary>
+            val images = mutableMapOf<String, Drawable>()
+            val binaryPattern = Regex(
+                "<binary\\s+[^>]*id=\"([^\"]+)\"[^>]*>([\\s\\S]*?)</binary>",
+                RegexOption.IGNORE_CASE
+            )
+            for (m in binaryPattern.findAll(xml)) {
+                val id = m.groupValues[1]
+                val base64 = m.groupValues[2].replace(Regex("\\s"), "")
+                val drawable = decodeBase64Image(base64)
+                if (drawable != null) {
+                    images[id] = drawable
+                }
+            }
+
+            // 2. Убираем <binary> из текста
+            val bodyStart = xml.indexOf("<body", ignoreCase = true)
+            val bodyEnd = xml.lastIndexOf("</body>", ignoreCase = true)
+            if (bodyStart == -1 || bodyEnd == -1) {
+                return SpannableStringBuilder("Не удалось найти <body> в FB2")
+            }
+            val bodyXml = xml.substring(bodyStart, bodyEnd)
+
+            // 3. Разбираем тело
+            // Заменяем <image .../> на маркеры
+            val imagePattern = Regex(
+                "<image\\s+[^>]*?l:href=\"#([^\"]+)\"[^>]*/>",
+                RegexOption.IGNORE_CASE
+            )
+            var bodyWithMarkers = imagePattern.replace(bodyXml) { matchResult ->
+                "[IMG:${matchResult.groupValues[1]}]"
+            }
+
+            // Заголовки — на новой странице
+            bodyWithMarkers = bodyWithMarkers
+                .replace(Regex("<title[^>]*>", RegexOption.IGNORE_CASE), "\n\n[[CHAPTER]]")
+                .replace(Regex("</title>", RegexOption.IGNORE_CASE), "[[/CHAPTER]]\n\n")
+
+            // Параграфы
+            bodyWithMarkers = bodyWithMarkers
+                .replace(Regex("<p[^>]*>", RegexOption.IGNORE_CASE), "\n\n")
+                .replace(Regex("<empty-line[^>]*/>", RegexOption.IGNORE_CASE), "\n")
+
+            // Все остальные теги — убираем
+            bodyWithMarkers = bodyWithMarkers
                 .replace(Regex("<[^>]+>"), "")
-                // Убираем HTML-сущности
+
+            // HTML-сущности
+            bodyWithMarkers = bodyWithMarkers
                 .replace("&quot;", "\"")
                 .replace("&amp;", "&")
                 .replace("&lt;", "<")
                 .replace("&gt;", ">")
                 .replace("&apos;", "'")
-                // Нормализуем пробелы
+                .replace("&nbsp;", " ")
+
+            // Нормализуем
+            bodyWithMarkers = bodyWithMarkers
                 .replace(Regex("[ \\t]+"), " ")
                 .replace(Regex("\\n{3,}"), "\n\n")
                 .trim()
-                .ifEmpty { "Не удалось извлечь текст из FB2" }
+
+            // 4. Строим Spannable — текст + картинки + главы
+            var lastIndex = 0
+            val tokenPattern = Regex("\\[IMG:([^\\]]+)\\]|\\[\\[CHAPTER\\]\\]|\\[\\[/CHAPTER\\]\\]")
+            for (m in tokenPattern.findAll(bodyWithMarkers)) {
+                // Текст до токена
+                sb.append(bodyWithMarkers.substring(lastIndex, m.range.first))
+
+                when (m.value) {
+                    "[[CHAPTER]]" -> {
+                        // Начинаем главу — большой жирный текст
+                        // Просто добавляем перенос
+                        sb.append("\n\n")
+                    }
+                    "[[/CHAPTER]]" -> {
+                        sb.append("\n\n")
+                    }
+                    else -> {
+                        // Картинка
+                        val imageId = m.groupValues[1]
+                        val drawable = images[imageId]
+                        if (drawable != null) {
+                            sb.append("\n")
+                            val start = sb.length
+                            sb.append(" ")
+                            sb.setSpan(
+                                ImageSpan(drawable, ImageSpan.ALIGN_BOTTOM),
+                                start, sb.length,
+                                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                            sb.append("\n")
+                        }
+                    }
+                }
+
+                lastIndex = m.range.last + 1
+            }
+            sb.append(bodyWithMarkers.substring(lastIndex))
+
         } catch (e: Exception) {
-            "Ошибка парсинга FB2: ${e.message}"
+            return SpannableStringBuilder("Ошибка парсинга FB2: ${e.message}")
+        }
+
+        return sb
+    }
+
+    // Декодирование base64 в Drawable с ограничением размера
+    private fun decodeBase64Image(base64: String): Drawable? {
+        return try {
+            val bytes = Base64.decode(base64, Base64.DEFAULT)
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (bitmap == null) return null
+
+            val drawable = BitmapDrawable(resources, bitmap)
+            val screenWidth = resources.displayMetrics.widthPixels
+            val maxWidth = (screenWidth * 0.85f).toInt()
+
+            if (bitmap.width > maxWidth) {
+                val ratio = maxWidth.toFloat() / bitmap.width
+                drawable.setBounds(0, 0, maxWidth, (bitmap.height * ratio).toInt())
+            } else {
+                drawable.setBounds(0, 0, bitmap.width, bitmap.height)
+            }
+            drawable
+        } catch (e: Exception) {
+            null
         }
     }
 
-    // Разбивка на страницы
-    private fun setupPages(text: String) {
-        if (text.isBlank()) {
+    // ============ РАЗБИВКА НА СТРАНИЦЫ С ГЛАВАМИ ============
+
+    private fun setupPages(fullText: SpannableStringBuilder) {
+        if (fullText.isEmpty()) {
             readerText.text = "Пустой файл"
             return
         }
 
-        val newPages = mutableListOf<String>()
+        val textStr = fullText.toString()
+        val newPages = mutableListOf<SpannableStringBuilder>()
+
         var index = 0
-        while (index < text.length) {
-            val end = minOf(index + PAGE_SIZE, text.length)
+        while (index < textStr.length) {
+            val end = minOf(index + PAGE_SIZE, textStr.length)
             var cut = end
-            if (end < text.length) {
+
+            if (end < textStr.length) {
+                // Ищем ближайший перенос или пробел
                 val searchStart = maxOf(index, end - 200)
-                val spaceIndex = text.lastIndexOf(' ', end)
-                val newlineIndex = text.lastIndexOf('\n', end)
+                val spaceIndex = textStr.lastIndexOf(' ', end)
+                val newlineIndex = textStr.lastIndexOf('\n', end)
                 cut = maxOf(newlineIndex, spaceIndex)
                 if (cut < searchStart) cut = end
             }
-            newPages.add(text.substring(index, cut).trim())
+
+            // Копируем Spannable кусок с сохранением картинок
+            val page = SpannableStringBuilder(fullText, index, cut)
+            newPages.add(page)
             index = cut
         }
 
@@ -202,6 +323,32 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun saveProgress() {
         prefs.edit().putInt(bookKey, currentPage).apply()
+    }
+
+    private fun saveBookToLibrary(uri: Uri, title: String) {
+        try {
+            try {
+                contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: Exception) {
+            }
+
+            val format = when {
+                uri.toString().lowercase().contains(".fb2") -> "fb2"
+                uri.toString().lowercase().contains(".txt") -> "txt"
+                uri.toString().lowercase().contains(".html") -> "html"
+                else -> "unknown"
+            }
+
+            val books = BookStorage.loadBooks(this)
+            if (books.any { it.uri == uri }) return
+
+            books.add(Book(uri, title, format))
+            BookStorage.saveBooks(this, books)
+        } catch (e: Exception) {
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
