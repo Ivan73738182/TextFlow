@@ -8,7 +8,8 @@ import androidx.recyclerview.widget.RecyclerView
 
 class BookAdapter(
     private val books: List<Book>,
-    private val onClick: (Book) -> Unit
+    private val onClick: (Book) -> Unit,
+    private val onLongClick: (Book) -> Unit
 ) : RecyclerView.Adapter<BookAdapter.BookViewHolder>() {
 
     class BookViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -31,8 +32,13 @@ class BookAdapter(
             "html", "htm" -> "🌐 HTML"
             else -> "📖 " + book.format.uppercase()
         }
-        holder.info.text = "$formatLabel • ${book.sizeKb} КБ"
+        holder.info.text = formatLabel
+
         holder.itemView.setOnClickListener { onClick(book) }
+        holder.itemView.setOnLongClickListener {
+            onLongClick(book)
+            true
+        }
     }
 
     override fun getItemCount(): Int = books.size

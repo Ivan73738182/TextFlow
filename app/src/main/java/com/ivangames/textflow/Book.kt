@@ -1,10 +1,9 @@
 package com.ivangames.textflow
 
-import java.io.File
+import android.net.Uri
 
 data class Book(
-    val file: File,
+    val uri: Uri,
     val title: String,
-    val format: String,
-    val sizeKb: Long
+    val format: String
 )
