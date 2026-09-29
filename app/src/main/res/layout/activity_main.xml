@@ -31,18 +31,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:padding="8dp"
         android:clipToPadding="false" />
-
-    <Button
-        android:id="@+id/addBookBtn"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        android:padding="18dp"
-        android:text="➕  ДОБАВИТЬ КНИГУ"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:textColor="#FFFFFF"
-        android:backgroundTint="#2E7D32" />
 
 </LinearLayout>

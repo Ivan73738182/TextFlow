@@ -38,7 +38,7 @@ class MainActivity : AppCompatActivity() {
 
             infoText = findViewById(R.id.infoText)
             booksList = findViewById(R.id.booksList)
-            booksList.layoutManager = LinearLayoutManager(this)
+            booksList.layoutManager = androidx.recyclerview.widget.GridLayoutManager(this, 2)
 
             // Пробуем загрузить сохранённые книги
             try {
