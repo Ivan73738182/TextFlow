@@ -34,7 +34,6 @@ class MainActivity : AppCompatActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         
         adapter = BookAdapter(booksList) { book ->
-            // Теперь при клике открываем экран чтения!
             val intent = Intent(this, ReaderActivity::class.java).apply {
                 putExtra("BOOK_TITLE", book.title)
                 putExtra("BOOK_PATH", book.path)
@@ -45,8 +44,10 @@ class MainActivity : AppCompatActivity() {
 
         val fab: FloatingActionButton = findViewById(R.id.addBookFab)
         fab.setOnClickListener {
+            // Разрешаем выбирать и txt, и fb2
             val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "text/plain"
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("text/plain", "application/x-fictionbook+xml", "application/octet-stream"))
             }
             pickFileLauncher.launch(intent)
         }

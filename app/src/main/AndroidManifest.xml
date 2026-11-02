@@ -9,7 +9,6 @@
         android:theme="@style/Theme.TextFlow"
         tools:targetApi="34">
         
-        <!-- Главный экран -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -19,29 +18,28 @@
             </intent-filter>
         </activity>
 
-        <!-- Экран чтения с фильтрами "Открыть с помощью" -->
         <activity
             android:name=".ReaderActivity"
             android:exported="true"
             android:theme="@style/Theme.TextFlow">
             
-            <!-- Фильтр для файлов .txt -->
+            <!-- TXT -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" android:mimeType="text/plain" />
                 <data android:scheme="file" android:mimeType="text/plain" />
-                <data android:host="*" android:pathPattern=".*\\.txt" />
             </intent-filter>
             
-            <!-- Универсальный фильтр для любых текстов -->
+            <!-- FB2 -->
             <intent-filter>
-                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
+                <data android:scheme="content" android:mimeType="application/x-fictionbook+xml" />
+                <data android:scheme="file" android:mimeType="application/x-fictionbook+xml" />
+                <data android:scheme="content" android:pathPattern=".*\\.fb2" />
+                <data android:scheme="file" android:pathPattern=".*\\.fb2" />
             </intent-filter>
         </activity>
-            
     </application>
 </manifest>

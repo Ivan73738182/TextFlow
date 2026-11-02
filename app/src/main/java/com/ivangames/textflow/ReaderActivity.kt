@@ -4,9 +4,12 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.text.Html
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 import java.io.BufferedReader
 import java.io.InputStreamReader
 
@@ -20,7 +23,6 @@ class ReaderActivity : AppCompatActivity() {
         var bookUri: Uri? = null
         var bookTitle = "Книга"
 
-        // Смотрим, откуда мы пришли: из библиотеки или из "Открыть с помощью"
         if (intent?.action == Intent.ACTION_VIEW) {
             bookUri = intent.data
             bookTitle = getFileName(bookUri) ?: "Внешний файл"
@@ -28,7 +30,6 @@ class ReaderActivity : AppCompatActivity() {
             bookUri = intent.getParcelableExtra(Intent.EXTRA_STREAM)
             bookTitle = getFileName(bookUri) ?: "Отправленный файл"
         } else {
-            // Обычный запуск из нашей библиотеки
             bookTitle = intent.getStringExtra("BOOK_TITLE") ?: "Книга"
             val path = intent.getStringExtra("BOOK_PATH")
             if (path != null) {
@@ -40,13 +41,17 @@ class ReaderActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         if (bookUri != null) {
-            loadBookText(bookUri, textView)
+            // Проверяем расширение файла
+            if (bookTitle.lowercase().endsWith(".fb2")) {
+                loadFb2(bookUri, textView)
+            } else {
+                loadTxt(bookUri, textView)
+            }
         } else {
             textView.text = "Ошибка: файл не передан."
         }
     }
 
-    // Вспомогательная функция: узнаем имя файла по его Uri
     private fun getFileName(uri: Uri?): String? {
         if (uri == null) return null
         var fileName: String? = null
@@ -59,19 +64,14 @@ class ReaderActivity : AppCompatActivity() {
         return fileName
     }
 
-    private fun loadBookText(uri: Uri, textView: TextView) {
+    // --- ЧТЕНИЕ TXT ---
+    private fun loadTxt(uri: Uri, textView: TextView) {
         try {
-            val inputStream = contentResolver.openInputStream(uri)
-            if (inputStream == null) {
-                textView.text = "Не удалось открыть файл."
-                return
-            }
-
+            val inputStream = contentResolver.openInputStream(uri) ?: return
             var reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
             var text = reader.readText()
             reader.close()
 
-            // Проверка на кодировку
             if (text.contains("\uFFFD") || text.contains("РЎ")) {
                 val inputStream2 = contentResolver.openInputStream(uri)
                 if (inputStream2 != null) {
@@ -80,12 +80,51 @@ class ReaderActivity : AppCompatActivity() {
                     reader.close()
                 }
             }
-
             textView.text = text
+        } catch (e: Exception) {
+            textView.text = "Ошибка TXT: ${e.message}"
+        }
+    }
+
+    // --- ЧТЕНИЕ FB2 ---
+    private fun loadFb2(uri: Uri, textView: TextView) {
+        try {
+            val inputStream = contentResolver.openInputStream(uri) ?: return
+            val parser = XmlPullParserFactory.newInstance().newPullParser()
+            parser.setInput(inputStream, null)
+
+            val htmlBuilder = StringBuilder()
+            var eventType = parser.eventType
+
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                if (eventType == XmlPullParser.START_TAG) {
+                    when (parser.name) {
+                        "title" -> htmlBuilder.append("<h2>")
+                        "p" -> htmlBuilder.append("<p>")
+                        "section" -> htmlBuilder.append("<br><br>")
+                        "emphasis" -> htmlBuilder.append("<i>")
+                        "strong" -> htmlBuilder.append("<b>")
+                    }
+                } else if (eventType == XmlPullParser.TEXT) {
+                    htmlBuilder.append(parser.text)
+                } else if (eventType == XmlPullParser.END_TAG) {
+                    when (parser.name) {
+                        "title" -> htmlBuilder.append("</h2><br>")
+                        "p" -> htmlBuilder.append("</p><br>")
+                        "emphasis" -> htmlBuilder.append("</i>")
+                        "strong" -> htmlBuilder.append("</b>")
+                    }
+                }
+                eventType = parser.next()
+            }
+            inputStream.close()
+
+            // Превращаем HTML-теги в форматированный текст
+            textView.text = Html.fromHtml(htmlBuilder.toString(), Html.FROM_HTML_MODE_LEGACY)
 
         } catch (e: Exception) {
-            textView.text = "Ошибка при чтении: ${e.message}"
-            Toast.makeText(this, "Ошибка чтения", Toast.LENGTH_SHORT).show()
+            textView.text = "Ошибка FB2: ${e.message}"
+            Toast.makeText(this, "Не удалось прочитать FB2", Toast.LENGTH_SHORT).show()
         }
     }
 
