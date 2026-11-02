@@ -46,5 +46,11 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
-    implementation("androidx.viewpager2:viewpager2:1.0.0") // <-- Добавили для листания страниц
+    implementation("androidx.viewpager2:viewpager2:1.0.0")
+
+    // Readium Toolkit для EPUB
+    implementation("org.readium.kotlin-toolkit:readium-shared:3.0.1")
+    implementation("org.readium.kotlin-toolkit:readium-streamer:3.0.1")
+    implementation("org.readium.kotlin-toolkit:readium-navigator:3.0.1")
+    implementation("org.readium.kotlin-toolkit:readium-opds:3.0.1")
 }
