@@ -24,11 +24,22 @@ jobs:
       with:
         gradle-version: 8.2
 
-    - name: Build with Gradle
-      run: gradle assembleDebug
+    # ШАГ ДЛЯ КЛЮЧЕЙ
+    - name: Decode Keystore
+      run: |
+        echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > my-upload-key.jks
+
+    # СБОРКА РЕЛИЗА
+    - name: Build Release APK
+      env:
+        KEYSTORE_PATH: my-upload-key.jks
+        KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+      run: gradle assembleRelease
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: TextFlow-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
+        name: TextFlow-release
+        path: app/build/outputs/apk/release/app-release.apk
