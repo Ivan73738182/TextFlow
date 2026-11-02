@@ -5,9 +5,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.text.Html
-import android.widget.TextView
+import android.view.KeyEvent
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.viewpager2.widget.ViewPager2
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.BufferedReader
@@ -15,14 +16,20 @@ import java.io.InputStreamReader
 
 class ReaderActivity : AppCompatActivity() {
 
+    private var viewPager: ViewPager2? = null
+    private var bookTitle: String = ""
+    private lateinit var prefs: android.content.SharedPreferences
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_reader)
 
-        val textView = findViewById<TextView>(R.id.bookTextView)
-        var bookUri: Uri? = null
-        var bookTitle = "Книга"
+        viewPager = findViewById(R.id.viewPager)
+        prefs = getSharedPreferences("TextFlowPrefs", MODE_PRIVATE)
 
+        var bookUri: Uri? = null
+        
+        // Логика получения Uri
         if (intent?.action == Intent.ACTION_VIEW) {
             bookUri = intent.data
             bookTitle = getFileName(bookUri) ?: "Внешний файл"
@@ -42,13 +49,47 @@ class ReaderActivity : AppCompatActivity() {
 
         if (bookUri != null) {
             if (bookTitle.lowercase().endsWith(".fb2")) {
-                loadFb2(bookUri, textView)
+                loadFb2(bookUri)
             } else {
-                loadTxt(bookUri, textView)
+                loadTxt(bookUri)
             }
         } else {
-            textView.text = "Ошибка: файл не передан."
+            Toast.makeText(this, "Файл не передан", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    // --- Обработка звуковых кнопок ---
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (viewPager != null) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    viewPager?.currentItem = (viewPager?.currentItem ?: 0) + 1 // Вниз звук = следующая страница
+                    return true
+                }
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    viewPager?.currentItem = (viewPager?.currentItem ?: 0) - 1 // Вверх звук = предыдущая страница
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    // --- Восстановление прогресса ---
+    private fun setupPager(adapter: PageAdapter) {
+        viewPager?.adapter = adapter
+        val savedPage = prefs.getInt("progress_$bookTitle", 0)
+        if (savedPage in 0 until adapter.itemCount) {
+            viewPager?.currentItem = savedPage
+        }
+
+        // Сохранение прогресса при свайпе
+        viewPager?.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                super.onPageSelected(position)
+                prefs.edit().putInt("progress_$bookTitle", position).apply()
+            }
+        })
     }
 
     private fun getFileName(uri: Uri?): String? {
@@ -63,7 +104,7 @@ class ReaderActivity : AppCompatActivity() {
         return fileName
     }
 
-    private fun loadTxt(uri: Uri, textView: TextView) {
+    private fun loadTxt(uri: Uri) {
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
             var reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
@@ -78,13 +119,13 @@ class ReaderActivity : AppCompatActivity() {
                     reader.close()
                 }
             }
-            textView.text = text
+            setupPager(PageAdapter(text))
         } catch (e: Exception) {
-            textView.text = "Ошибка TXT: ${e.message}"
+            Toast.makeText(this, "Ошибка TXT: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun loadFb2(uri: Uri, textView: TextView) {
+    private fun loadFb2(uri: Uri) {
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
             val parser = XmlPullParserFactory.newInstance().newPullParser()
@@ -93,22 +134,16 @@ class ReaderActivity : AppCompatActivity() {
             val htmlBuilder = StringBuilder()
             var eventType = parser.eventType
             var insideBody = false
-            var insideTitle = false
             var skipBinary = false
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 val tagName = parser.name
-                
                 if (eventType == XmlPullParser.START_TAG) {
                     if (tagName == "body") insideBody = true
                     if (tagName == "binary") skipBinary = true
-                    
                     if (insideBody && !skipBinary) {
                         when (tagName) {
-                            "title" -> {
-                                insideTitle = true
-                                htmlBuilder.append("<br><h3>")
-                            }
+                            "title" -> htmlBuilder.append("<br><h3>")
                             "section" -> htmlBuilder.append("<br>")
                             "p" -> htmlBuilder.append("<p>")
                             "emphasis" -> htmlBuilder.append("<i>")
@@ -119,22 +154,16 @@ class ReaderActivity : AppCompatActivity() {
                             "stanza" -> htmlBuilder.append("<br>")
                             "v" -> htmlBuilder.append("<br>")
                             "epigraph" -> htmlBuilder.append("<br><i>")
-                            "a" -> htmlBuilder.append(" [") // Сноска
+                            "a" -> htmlBuilder.append(" [")
                         }
                     }
                 } else if (eventType == XmlPullParser.TEXT) {
-                    if (insideBody && !skipBinary) {
-                        htmlBuilder.append(parser.text)
-                    }
+                    if (insideBody && !skipBinary) htmlBuilder.append(parser.text)
                 } else if (eventType == XmlPullParser.END_TAG) {
                     if (tagName == "binary") skipBinary = false
-                    
                     if (insideBody && !skipBinary) {
                         when (tagName) {
-                            "title" -> {
-                                insideTitle = false
-                                htmlBuilder.append("</h3>")
-                            }
+                            "title" -> htmlBuilder.append("</h3>")
                             "p" -> htmlBuilder.append("</p>")
                             "emphasis" -> htmlBuilder.append("</i>")
                             "strong" -> htmlBuilder.append("</b>")
@@ -151,14 +180,13 @@ class ReaderActivity : AppCompatActivity() {
             inputStream.close()
 
             if (htmlBuilder.isNotEmpty()) {
-                textView.text = Html.fromHtml(htmlBuilder.toString(), Html.FROM_HTML_MODE_LEGACY)
+                setupPager(PageAdapter(htmlBuilder.toString()))
             } else {
-                textView.text = "Текст не найден. Возможно, файл поврежден или пуст."
+                Toast.makeText(this, "Текст не найден.", Toast.LENGTH_SHORT).show()
             }
 
         } catch (e: Exception) {
-            textView.text = "Ошибка FB2: ${e.message}"
-            Toast.makeText(this, "Не удалось прочитать FB2", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Ошибка FB2: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 

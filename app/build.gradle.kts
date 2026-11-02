@@ -17,7 +17,6 @@ android {
 
     signingConfigs {
         create("release") {
-            // Ищем файл в корне проекта (на уровень выше папки app)
             storeFile = file("../my-upload-key.jks") 
             storePassword = System.getenv("KEYSTORE_PASSWORD")
             keyAlias = System.getenv("KEY_ALIAS")
@@ -47,4 +46,5 @@ dependencies {
     implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.viewpager2:viewpager2:1.0.0") // <-- Добавили для листания страниц
 }
