@@ -92,41 +92,59 @@ class ReaderActivity : AppCompatActivity() {
 
             val htmlBuilder = StringBuilder()
             var eventType = parser.eventType
-            var insideBody = false // Читаем только то, что внутри <body>
+            var insideBody = false
+            var insideTitle = false
+            var skipBinary = false
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 val tagName = parser.name
                 
                 if (eventType == XmlPullParser.START_TAG) {
-                    if (tagName == "body") {
-                        insideBody = true
-                    }
+                    if (tagName == "body") insideBody = true
+                    if (tagName == "binary") skipBinary = true
                     
-                    if (insideBody) {
+                    if (insideBody && !skipBinary) {
                         when (tagName) {
-                            "title" -> htmlBuilder.append("<h2>")
+                            "title" -> {
+                                insideTitle = true
+                                htmlBuilder.append("<br><h3>")
+                            }
+                            "section" -> htmlBuilder.append("<br>")
                             "p" -> htmlBuilder.append("<p>")
-                            "section" -> htmlBuilder.append("<br><br>")
                             "emphasis" -> htmlBuilder.append("<i>")
                             "strong" -> htmlBuilder.append("<b>")
+                            "subtitle" -> htmlBuilder.append("<b><i>")
+                            "empty-line" -> htmlBuilder.append("<br><br>")
+                            "poem" -> htmlBuilder.append("<br><i>")
+                            "stanza" -> htmlBuilder.append("<br>")
+                            "v" -> htmlBuilder.append("<br>")
+                            "epigraph" -> htmlBuilder.append("<br><i>")
+                            "a" -> htmlBuilder.append(" [") // Сноска
                         }
                     }
                 } else if (eventType == XmlPullParser.TEXT) {
-                    if (insideBody) {
+                    if (insideBody && !skipBinary) {
                         htmlBuilder.append(parser.text)
                     }
                 } else if (eventType == XmlPullParser.END_TAG) {
-                    if (insideBody) {
+                    if (tagName == "binary") skipBinary = false
+                    
+                    if (insideBody && !skipBinary) {
                         when (tagName) {
-                            "title" -> htmlBuilder.append("</h2><br>")
-                            "p" -> htmlBuilder.append("</p><br>")
+                            "title" -> {
+                                insideTitle = false
+                                htmlBuilder.append("</h3>")
+                            }
+                            "p" -> htmlBuilder.append("</p>")
                             "emphasis" -> htmlBuilder.append("</i>")
                             "strong" -> htmlBuilder.append("</b>")
+                            "subtitle" -> htmlBuilder.append("</i></b>")
+                            "poem" -> htmlBuilder.append("</i>")
+                            "epigraph" -> htmlBuilder.append("</i>")
+                            "a" -> htmlBuilder.append("]")
                         }
                     }
-                    if (tagName == "body") {
-                        insideBody = false
-                    }
+                    if (tagName == "body") insideBody = false
                 }
                 eventType = parser.next()
             }
