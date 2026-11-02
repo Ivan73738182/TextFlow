@@ -29,7 +29,6 @@ class ReaderActivity : AppCompatActivity() {
 
         var bookUri: Uri? = null
         
-        // Логика получения Uri
         if (intent?.action == Intent.ACTION_VIEW) {
             bookUri = intent.data
             bookTitle = getFileName(bookUri) ?: "Внешний файл"
@@ -58,16 +57,15 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
-    // --- Обработка звуковых кнопок ---
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (viewPager != null) {
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    viewPager?.currentItem = (viewPager?.currentItem ?: 0) + 1 // Вниз звук = следующая страница
+                    viewPager?.currentItem = (viewPager?.currentItem ?: 0) + 1
                     return true
                 }
                 KeyEvent.KEYCODE_VOLUME_UP -> {
-                    viewPager?.currentItem = (viewPager?.currentItem ?: 0) - 1 // Вверх звук = предыдущая страница
+                    viewPager?.currentItem = (viewPager?.currentItem ?: 0) - 1
                     return true
                 }
             }
@@ -75,15 +73,25 @@ class ReaderActivity : AppCompatActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
-    // --- Восстановление прогресса ---
-    private fun setupPager(adapter: PageAdapter) {
+    private fun setupPager(text: String) {
+        // Получаем размеры экрана
+        val displayMetrics = resources.displayMetrics
+        val screenWidth = displayMetrics.widthPixels
+        val screenHeight = displayMetrics.heightPixels
+
+        // Размер шрифта (18sp переводим в пиксели)
+        val textSizePx = 18 * displayMetrics.scaledDensity
+
+        val adapter = PageAdapter(text, screenWidth, screenHeight, textSizePx)
         viewPager?.adapter = adapter
+
+        // Восстановление прогресса
         val savedPage = prefs.getInt("progress_$bookTitle", 0)
         if (savedPage in 0 until adapter.itemCount) {
             viewPager?.currentItem = savedPage
         }
 
-        // Сохранение прогресса при свайпе
+        // Сохранение прогресса
         viewPager?.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 super.onPageSelected(position)
@@ -119,7 +127,7 @@ class ReaderActivity : AppCompatActivity() {
                     reader.close()
                 }
             }
-            setupPager(PageAdapter(text))
+            setupPager(text)
         } catch (e: Exception) {
             Toast.makeText(this, "Ошибка TXT: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -180,7 +188,7 @@ class ReaderActivity : AppCompatActivity() {
             inputStream.close()
 
             if (htmlBuilder.isNotEmpty()) {
-                setupPager(PageAdapter(htmlBuilder.toString()))
+                setupPager(htmlBuilder.toString())
             } else {
                 Toast.makeText(this, "Текст не найден.", Toast.LENGTH_SHORT).show()
             }

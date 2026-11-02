@@ -7,10 +7,15 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
-class PageAdapter(private val text: String) : RecyclerView.Adapter<PageAdapter.PageViewHolder>() {
+class PageAdapter(
+    private val text: String,
+    screenWidthPx: Int,
+    screenHeightPx: Int,
+    textSizePx: Float
+) : RecyclerView.Adapter<PageAdapter.PageViewHolder>() {
 
-    // Разбиваем текст на страницы примерно по 1500 символов
-    private val pages: List<String> = splitIntoPages(text)
+    // Рассчитываем примерное количество символов на страницу
+    private val pages: List<String> = calculatePages(text, screenWidthPx, screenHeightPx, textSizePx)
 
     class PageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val textView: TextView = view.findViewById(R.id.pageTextView)
@@ -22,33 +27,53 @@ class PageAdapter(private val text: String) : RecyclerView.Adapter<PageAdapter.P
     }
 
     override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
-        // Превращаем HTML (от парсера FB2) в форматированный текст
         holder.textView.text = Html.fromHtml(pages[position], Html.FROM_HTML_MODE_LEGACY)
     }
 
     override fun getItemCount() = pages.size
 
-    private fun splitIntoPages(fullText: String): List<String> {
+    private fun calculatePages(fullText: String, width: Int, height: Int, textSize: Float): List<String> {
         val pages = mutableListOf<String>()
-        val pageSize = 1500 // Количество символов на страницу (можно настроить)
+        
+        // Отнимаем отступы (padding 16dp с каждой стороны) + примерная высота статус-бара
+        val usableWidth = width - 64f 
+        val usableHeight = height - 100f 
 
-        if (fullText.length <= pageSize) {
-            pages.add(fullText)
+        // Примерное количество символов в одной строке (ширина / средняя ширина символа)
+        // 0.55f — это эмпирический коэффициент для шрифта размера 18sp
+        val charsPerLine = (usableWidth / (textSize * 0.55f)).toInt()
+        
+        // Количество строк на экране (высота / высота строки)
+        // lineSpacingExtra = 6dp, значит строка занимает textSize + 6dp (примерно 1.4 от размера шрифта)
+        val linesPerPage = (usableHeight / (textSize * 1.6f)).toInt()
+
+        // Максимальное количество символов на страницу
+        val maxCharsPerPage = charsPerLine * linesPerPage
+
+        if (maxCharsPerPage <= 0) {
+            pages.add(fullText) // Защита от деления на ноль
             return pages
         }
 
         var start = 0
         while (start < fullText.length) {
-            var end = start + pageSize
+            var end = start + maxCharsPerPage
             if (end > fullText.length) end = fullText.length
             
-            // Пытаемся разбить по пробелу, чтобы не рвать слова
-            val lastSpace = fullText.lastIndexOf(' ', end)
-            if (lastSpace > start) {
+            // Ищем ближайший пробел или перенос строки, чтобы не рвать слова
+            var lastSpace = -1
+            for (i in end downTo start) {
+                if (i < fullText.length && (fullText[i] == ' ' || fullText[i] == '\n')) {
+                    lastSpace = i
+                    break
+                }
+            }
+            
+            if (lastSpace != -1 && lastSpace > start) {
                 end = lastSpace
             }
             
-            pages.add(fullText.substring(start, end))
+            pages.add(fullText.substring(start, end).trim())
             start = end
         }
         return pages
