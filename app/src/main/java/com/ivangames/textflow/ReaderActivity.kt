@@ -41,7 +41,6 @@ class ReaderActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         if (bookUri != null) {
-            // Проверяем расширение файла
             if (bookTitle.lowercase().endsWith(".fb2")) {
                 loadFb2(bookUri, textView)
             } else {
@@ -64,7 +63,6 @@ class ReaderActivity : AppCompatActivity() {
         return fileName
     }
 
-    // --- ЧТЕНИЕ TXT ---
     private fun loadTxt(uri: Uri, textView: TextView) {
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
@@ -86,7 +84,6 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
-    // --- ЧТЕНИЕ FB2 ---
     private fun loadFb2(uri: Uri, textView: TextView) {
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
@@ -95,36 +92,55 @@ class ReaderActivity : AppCompatActivity() {
 
             val htmlBuilder = StringBuilder()
             var eventType = parser.eventType
+            var insideBody = false // Читаем только то, что внутри <body>
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
+                val tagName = parser.name
+                
                 if (eventType == XmlPullParser.START_TAG) {
-                    when (parser.name) {
-                        "title" -> htmlBuilder.append("<h2>")
-                        "p" -> htmlBuilder.append("<p>")
-                        "section" -> htmlBuilder.append("<br><br>")
-                        "emphasis" -> htmlBuilder.append("<i>")
-                        "strong" -> htmlBuilder.append("<b>")
+                    if (tagName == "body") {
+                        insideBody = true
+                    }
+                    
+                    if (insideBody) {
+                        when (tagName) {
+                            "title" -> htmlBuilder.append("<h2>")
+                            "p" -> htmlBuilder.append("<p>")
+                            "section" -> htmlBuilder.append("<br><br>")
+                            "emphasis" -> htmlBuilder.append("<i>")
+                            "strong" -> htmlBuilder.append("<b>")
+                        }
                     }
                 } else if (eventType == XmlPullParser.TEXT) {
-                    htmlBuilder.append(parser.text)
+                    if (insideBody) {
+                        htmlBuilder.append(parser.text)
+                    }
                 } else if (eventType == XmlPullParser.END_TAG) {
-                    when (parser.name) {
-                        "title" -> htmlBuilder.append("</h2><br>")
-                        "p" -> htmlBuilder.append("</p><br>")
-                        "emphasis" -> htmlBuilder.append("</i>")
-                        "strong" -> htmlBuilder.append("</b>")
+                    if (insideBody) {
+                        when (tagName) {
+                            "title" -> htmlBuilder.append("</h2><br>")
+                            "p" -> htmlBuilder.append("</p><br>")
+                            "emphasis" -> htmlBuilder.append("</i>")
+                            "strong" -> htmlBuilder.append("</b>")
+                        }
+                    }
+                    if (tagName == "body") {
+                        insideBody = false
                     }
                 }
                 eventType = parser.next()
             }
             inputStream.close()
 
-            // Превращаем HTML-теги в форматированный текст
-            textView.text = Html.fromHtml(htmlBuilder.toString(), Html.FROM_HTML_MODE_LEGACY)
+            if (htmlBuilder.isNotEmpty()) {
+                textView.text = Html.fromHtml(htmlBuilder.toString(), Html.FROM_HTML_MODE_LEGACY)
+            } else {
+                textView.text = "Текст не найден. Возможно, файл поврежден или пуст."
+            }
 
         } catch (e: Exception) {
             textView.text = "Ошибка FB2: ${e.message}"
-            Toast.makeText(this, "Не удалось прочитать FB2", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Не удалось прочитать FB2", Toast.LENGTH_LONG).show()
         }
     }
 
