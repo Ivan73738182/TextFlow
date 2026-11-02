@@ -1,7 +1,9 @@
 package com.ivangames.textflow
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -14,38 +16,63 @@ class ReaderActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_reader)
 
-        val bookTitle = intent.getStringExtra("BOOK_TITLE") ?: "Книга"
-        val bookPath = intent.getStringExtra("BOOK_PATH")
         val textView = findViewById<TextView>(R.id.bookTextView)
+        var bookUri: Uri? = null
+        var bookTitle = "Книга"
 
-        // Устанавливаем заголовок окна
+        // Смотрим, откуда мы пришли: из библиотеки или из "Открыть с помощью"
+        if (intent?.action == Intent.ACTION_VIEW) {
+            bookUri = intent.data
+            bookTitle = getFileName(bookUri) ?: "Внешний файл"
+        } else if (intent?.action == Intent.ACTION_SEND) {
+            bookUri = intent.getParcelableExtra(Intent.EXTRA_STREAM)
+            bookTitle = getFileName(bookUri) ?: "Отправленный файл"
+        } else {
+            // Обычный запуск из нашей библиотеки
+            bookTitle = intent.getStringExtra("BOOK_TITLE") ?: "Книга"
+            val path = intent.getStringExtra("BOOK_PATH")
+            if (path != null) {
+                bookUri = Uri.parse(path)
+            }
+        }
+
         supportActionBar?.title = bookTitle
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
-        if (bookPath != null) {
-            loadBookText(Uri.parse(bookPath), textView)
+        if (bookUri != null) {
+            loadBookText(bookUri, textView)
         } else {
-            textView.text = "Ошибка: путь к книге не найден."
+            textView.text = "Ошибка: файл не передан."
         }
+    }
+
+    // Вспомогательная функция: узнаем имя файла по его Uri
+    private fun getFileName(uri: Uri?): String? {
+        if (uri == null) return null
+        var fileName: String? = null
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (nameIndex != -1 && cursor.moveToFirst()) {
+                fileName = cursor.getString(nameIndex)
+            }
+        }
+        return fileName
     }
 
     private fun loadBookText(uri: Uri, textView: TextView) {
         try {
-            // Пытаемся открыть поток
             val inputStream = contentResolver.openInputStream(uri)
             if (inputStream == null) {
                 textView.text = "Не удалось открыть файл."
                 return
             }
 
-            // Читаем текст. Сначала пробуем UTF-8
             var reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
             var text = reader.readText()
             reader.close()
 
-            // Проверка на "кракозябры" (если много символов '�', значит кодировка не UTF-8)
+            // Проверка на кодировку
             if (text.contains("\uFFFD") || text.contains("РЎ")) {
-                // Если нашли битые символы, перечитываем в Windows-1251
                 val inputStream2 = contentResolver.openInputStream(uri)
                 if (inputStream2 != null) {
                     reader = BufferedReader(InputStreamReader(inputStream2, "Windows-1251"))

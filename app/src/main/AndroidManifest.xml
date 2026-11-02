@@ -9,6 +9,7 @@
         android:theme="@style/Theme.TextFlow"
         tools:targetApi="34">
         
+        <!-- Главный экран -->
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -18,11 +19,29 @@
             </intent-filter>
         </activity>
 
-        <!-- Добавляем новый экран чтения -->
+        <!-- Экран чтения с фильтрами "Открыть с помощью" -->
         <activity
             android:name=".ReaderActivity"
-            android:exported="false"
-            android:theme="@style/Theme.TextFlow" />
+            android:exported="true"
+            android:theme="@style/Theme.TextFlow">
+            
+            <!-- Фильтр для файлов .txt -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" android:mimeType="text/plain" />
+                <data android:scheme="file" android:mimeType="text/plain" />
+                <data android:host="*" android:pathPattern=".*\\.txt" />
+            </intent-filter>
+            
+            <!-- Универсальный фильтр для любых текстов -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
             
     </application>
 </manifest>
