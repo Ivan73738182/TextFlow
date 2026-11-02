@@ -18,7 +18,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: BookAdapter
     private lateinit var recyclerView: RecyclerView
 
-    // Обработчик выбора файла
     private val pickFileLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.data?.let { uri ->
@@ -35,15 +34,19 @@ class MainActivity : AppCompatActivity() {
         recyclerView.layoutManager = LinearLayoutManager(this)
         
         adapter = BookAdapter(booksList) { book ->
-            // Пока просто показываем тост, позже откроем экран чтения
-            Toast.makeText(this, "Открываем: ${book.title}", Toast.LENGTH_SHORT).show()
+            // Теперь при клике открываем экран чтения!
+            val intent = Intent(this, ReaderActivity::class.java).apply {
+                putExtra("BOOK_TITLE", book.title)
+                putExtra("BOOK_PATH", book.path)
+            }
+            startActivity(intent)
         }
         recyclerView.adapter = adapter
 
         val fab: FloatingActionButton = findViewById(R.id.addBookFab)
         fab.setOnClickListener {
             val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "text/plain" // Пока разрешаем только TXT
+                type = "text/plain"
             }
             pickFileLauncher.launch(intent)
         }
