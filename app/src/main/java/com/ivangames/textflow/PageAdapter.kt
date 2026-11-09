@@ -1,6 +1,9 @@
 package com.ivangames.textflow
 
 import android.text.Html
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -8,13 +11,13 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
 class PageAdapter(
-    private val text: String,
+    private val fullText: String,
     screenWidthPx: Int,
     screenHeightPx: Int,
     textSizePx: Float
 ) : RecyclerView.Adapter<PageAdapter.PageViewHolder>() {
 
-    private val pages: List<String> = calculatePages(text, screenWidthPx, screenHeightPx, textSizePx)
+    private val pages: List<String> = splitTextIntoPages(fullText, screenWidthPx, screenHeightPx, textSizePx)
 
     class PageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val textView: TextView = view.findViewById(R.id.pageTextView)
@@ -26,44 +29,42 @@ class PageAdapter(
     }
 
     override fun onBindViewHolder(holder: PageViewHolder, position: Int) {
-        holder.textView.text = Html.fromHtml(pages[position], Html.FROM_HTML_MODE_LEGACY)
+        val spanned = Html.fromHtml(pages[position], Html.FROM_HTML_MODE_LEGACY)
+        holder.textView.text = spanned
+        holder.textView.movementMethod = android.text.method.LinkMovementMethod.getInstance()
     }
 
     override fun getItemCount() = pages.size
 
-    private fun calculatePages(fullText: String, width: Int, height: Int, textSize: Float): List<String> {
+    private fun splitTextIntoPages(text: String, width: Int, height: Int, textSize: Float): List<String> {
         val pages = mutableListOf<String>()
-        val usableWidth = width - 64f 
-        val usableHeight = height - 100f 
-        val charsPerLine = (usableWidth / (textSize * 0.55f)).toInt()
-        val linesPerPage = (usableHeight / (textSize * 1.6f)).toInt()
-        val maxCharsPerPage = charsPerLine * linesPerPage
+        if (text.isEmpty()) return pages
 
-        if (maxCharsPerPage <= 0) {
-            pages.add(fullText)
-            return pages
+        val paint = TextPaint().apply {
+            this.textSize = textSize
+            isAntiAlias = true
         }
+        
+        val availableWidth = width - 64 // Отступы
+        val availableHeight = height - 100 // Отступы + статус-бар
 
         var start = 0
-        while (start < fullText.length) {
-            var end = start + maxCharsPerPage
-            if (end > fullText.length) end = fullText.length
+        while (start < text.length) {
+            // Создаем "виртуальный" лейаут, чтобы узнать, сколько влезет
+            val layout = StaticLayout.Builder.obtain(text, start, text.length, paint, availableWidth)
+                .setIncludePad(false)
+                .setLineSpacing(6f, 1f) // lineSpacingExtra
+                .build()
+
+            // Получаем номер последней строки, которая помещается по высоте
+            val lastLine = layout.getLineForVertical(availableHeight)
             
-            // Ищем последний пробел или перенос строки СТРОГО ДО лимита
-            if (end < fullText.length) {
-                var lastBreak = -1
-                for (i in end downTo start) {
-                    if (i < fullText.length && (fullText[i] == ' ' || fullText[i] == '\n')) {
-                        lastBreak = i
-                        break
-                    }
-                }
-                if (lastBreak > start) {
-                    end = lastBreak
-                }
-            }
+            // Получаем символ, на котором заканчивается эта строка
+            var end = layout.getLineEnd(lastLine)
             
-            pages.add(fullText.substring(start, end).trim())
+            if (end <= start) end = start + 100 // Защита от бесконечного цикла
+            
+            pages.add(text.substring(start, end).trim())
             start = end
         }
         return pages

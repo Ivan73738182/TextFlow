@@ -7,7 +7,9 @@ import android.provider.OpenableColumns
 import android.text.Html
 import android.text.Spanned
 import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
 import android.view.KeyEvent
+import android.view.View
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -23,7 +25,7 @@ class ReaderActivity : AppCompatActivity() {
     private var viewPager: ViewPager2? = null
     private var bookTitle: String = ""
     private lateinit var prefs: android.content.SharedPreferences
-    private val notesMap = mutableMapOf<String, String>() // Для сносок
+    private val notesMap = mutableMapOf<String, String>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -140,38 +142,6 @@ class ReaderActivity : AppCompatActivity() {
 
     private fun loadFb2Fb3(uri: Uri) {
         try {
-            // ПЕРВЫЙ ПРОХОД: ищем сноски
-            val inputStreamNotes = contentResolver.openInputStream(uri) ?: return
-            val parserNotes = XmlPullParserFactory.newInstance().newPullParser()
-            parserNotes.setInput(inputStreamNotes, null)
-            var eventNotes = parserNotes.eventType
-            var currentNoteId = ""
-            var currentNoteText = StringBuilder()
-            
-            while (eventNotes != XmlPullParser.END_DOCUMENT) {
-                if (eventNotes == XmlPullParser.START_TAG && parserNotes.name == "body") {
-                    val name = parserNotes.getAttributeValue(null, "name")
-                    if (name != "notes") {
-                        // Пропускаем основной текст, ищем только notes
-                    }
-                }
-                if (eventNotes == XmlPullParser.START_TAG && parserNotes.name == "section") {
-                    val id = parserNotes.getAttributeValue(null, "id")
-                    if (id != null) currentNoteId = id
-                }
-                if (eventNotes == XmlPullParser.TEXT && currentNoteId.isNotEmpty()) {
-                    currentNoteText.append(parserNotes.text)
-                }
-                if (eventNotes == XmlPullParser.END_TAG && parserNotes.name == "section" && currentNoteId.isNotEmpty()) {
-                    notesMap[currentNoteId] = currentNoteText.toString().trim()
-                    currentNoteId = ""
-                    currentNoteText = StringBuilder()
-                }
-                eventNotes = parserNotes.next()
-            }
-            inputStreamNotes.close()
-
-            // ВТОРОЙ ПРОХОД: читаем основной текст
             val inputStream = contentResolver.openInputStream(uri) ?: return
             val parser = XmlPullParserFactory.newInstance().newPullParser()
             parser.setInput(inputStream, null)
@@ -180,53 +150,82 @@ class ReaderActivity : AppCompatActivity() {
             var eventType = parser.eventType
             var insideBody = false
             var skipBinary = false
+            var insideNotes = false
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 val tagName = parser.name
+                
                 if (eventType == XmlPullParser.START_TAG) {
-                    if (tagName == "body") insideBody = true
+                    if (tagName == "body") {
+                        val name = parser.getAttributeValue(null, "name")
+                        insideNotes = (name == "notes")
+                        insideBody = true
+                    }
                     if (tagName == "binary") skipBinary = true
+                    
                     if (insideBody && !skipBinary) {
-                        when (tagName) {
-                            "title" -> htmlBuilder.append("<br><h3>")
-                            "section" -> htmlBuilder.append("<br>")
-                            "p" -> htmlBuilder.append("<p>")
-                            "emphasis" -> htmlBuilder.append("<i>")
-                            "strong" -> htmlBuilder.append("<b>")
-                            "subtitle" -> htmlBuilder.append("<b><i>")
-                            "empty-line" -> htmlBuilder.append("<br><br>")
-                            "poem" -> htmlBuilder.append("<br><i>")
-                            "stanza" -> htmlBuilder.append("<br>")
-                            "v" -> htmlBuilder.append("<br>")
-                            "epigraph" -> htmlBuilder.append("<br><i>")
-                            "a" -> {
-                                val href = parser.getAttributeValue(null, "href")
-                                if (href != null) {
-                                    val noteId = href.substringAfter("#")
-                                    htmlBuilder.append("<sup><a href=\"note:$noteId\">[${noteId}]</a></sup>")
-                                } else {
-                                    htmlBuilder.append(" [")
+                        // Если мы в сносках, собираем их в словарь
+                        if (insideNotes) {
+                            if (tagName == "section") {
+                                val id = parser.getAttributeValue(null, "id") ?: ""
+                                htmlBuilder.append("\n<!-- NOTE:$id -->\n")
+                            }
+                        } else {
+                            // Основной текст
+                            when (tagName) {
+                                "title" -> htmlBuilder.append("<br><h3>")
+                                "section" -> htmlBuilder.append("<br>")
+                                "p" -> htmlBuilder.append("<p>")
+                                "emphasis" -> htmlBuilder.append("<i>")
+                                "strong" -> htmlBuilder.append("<b>")
+                                "subtitle" -> htmlBuilder.append("<b><i>")
+                                "empty-line" -> htmlBuilder.append("<br><br>")
+                                "poem" -> htmlBuilder.append("<br><i>")
+                                "stanza" -> htmlBuilder.append("<br>")
+                                "v" -> htmlBuilder.append("<br>")
+                                "epigraph" -> htmlBuilder.append("<br><i>")
+                                "a" -> {
+                                    val href = parser.getAttributeValue(null, "href")
+                                    if (href != null && href.contains("#")) {
+                                        val id = href.substringAfter("#")
+                                        htmlBuilder.append("<sup><a href=\"#note_$id\">[$id]</a></sup>")
+                                    } else {
+                                        htmlBuilder.append(" [")
+                                    }
                                 }
                             }
                         }
                     }
                 } else if (eventType == XmlPullParser.TEXT) {
-                    if (insideBody && !skipBinary) htmlBuilder.append(parser.text)
+                    if (insideBody && !skipBinary) {
+                        if (insideNotes) {
+                            htmlBuilder.append(parser.text)
+                        } else {
+                            htmlBuilder.append(parser.text)
+                        }
+                    }
                 } else if (eventType == XmlPullParser.END_TAG) {
                     if (tagName == "binary") skipBinary = false
                     if (insideBody && !skipBinary) {
-                        when (tagName) {
-                            "title" -> htmlBuilder.append("</h3>")
-                            "p" -> htmlBuilder.append("</p>")
-                            "emphasis" -> htmlBuilder.append("</i>")
-                            "strong" -> htmlBuilder.append("</b>")
-                            "subtitle" -> htmlBuilder.append("</i></b>")
-                            "poem" -> htmlBuilder.append("</i>")
-                            "epigraph" -> htmlBuilder.append("</i>")
-                            "a" -> htmlBuilder.append("]")
+                        if (insideNotes) {
+                            // Конец сноски — можно сохранить (пока пропускаем)
+                        } else {
+                            when (tagName) {
+                                "title" -> htmlBuilder.append("</h3>")
+                                "p" -> htmlBuilder.append("</p>")
+                                "emphasis" -> htmlBuilder.append("</i>")
+                                "strong" -> htmlBuilder.append("</b>")
+                                "subtitle" -> htmlBuilder.append("</i></b>")
+                                "poem" -> htmlBuilder.append("</i>")
+                                "epigraph" -> htmlBuilder.append("</i>")
+                                "a" -> htmlBuilder.append("]")
+                            }
                         }
                     }
-                    if (tagName == "body") insideBody = false
+                    if (tagName == "body") {
+                        insideBody = false
+                        insideNotes = false
+                    }
                 }
                 eventType = parser.next()
             }
