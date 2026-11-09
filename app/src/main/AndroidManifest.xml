@@ -31,7 +31,7 @@
                 <data android:scheme="file" android:mimeType="text/plain" />
             </intent-filter>
             
-            <!-- FB2 -->
+            <!-- FB2 и FB3 -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -39,6 +39,16 @@
                 <data android:scheme="file" android:mimeType="application/x-fictionbook+xml" />
                 <data android:scheme="content" android:pathPattern=".*\\.fb2" />
                 <data android:scheme="file" android:pathPattern=".*\\.fb2" />
+                <data android:scheme="content" android:pathPattern=".*\\.fb3" />
+                <data android:scheme="file" android:pathPattern=".*\\.fb3" />
+            </intent-filter>
+
+            <!-- FB (старый формат) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" android:pathPattern=".*\\.fb" />
+                <data android:scheme="file" android:pathPattern=".*\\.fb" />
             </intent-filter>
         </activity>
     </application>

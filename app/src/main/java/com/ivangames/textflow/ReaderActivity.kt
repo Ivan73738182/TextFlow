@@ -47,10 +47,11 @@ class ReaderActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         if (bookUri != null) {
-            if (bookTitle.lowercase().endsWith(".fb2")) {
-                loadFb2(bookUri)
+            val lowerTitle = bookTitle.lowercase()
+            if (lowerTitle.endsWith(".fb2") || lowerTitle.endsWith(".fb3")) {
+                loadFb2Fb3(bookUri)
             } else {
-                loadTxt(bookUri)
+                loadTxtOrFb(bookUri)
             }
         } else {
             Toast.makeText(this, "Файл не передан", Toast.LENGTH_SHORT).show()
@@ -74,24 +75,19 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     private fun setupPager(text: String) {
-        // Получаем размеры экрана
         val displayMetrics = resources.displayMetrics
         val screenWidth = displayMetrics.widthPixels
         val screenHeight = displayMetrics.heightPixels
-
-        // Размер шрифта (18sp переводим в пиксели)
         val textSizePx = 18 * displayMetrics.scaledDensity
 
         val adapter = PageAdapter(text, screenWidth, screenHeight, textSizePx)
         viewPager?.adapter = adapter
 
-        // Восстановление прогресса
         val savedPage = prefs.getInt("progress_$bookTitle", 0)
         if (savedPage in 0 until adapter.itemCount) {
             viewPager?.currentItem = savedPage
         }
 
-        // Сохранение прогресса
         viewPager?.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 super.onPageSelected(position)
@@ -112,12 +108,18 @@ class ReaderActivity : AppCompatActivity() {
         return fileName
     }
 
-    private fun loadTxt(uri: Uri) {
+    // Для TXT и FB (просто текст)
+    private fun loadTxtOrFb(uri: Uri) {
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
             var reader = BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8))
             var text = reader.readText()
             reader.close()
+
+            // Если это XML (FB), уберем теги на всякий случай
+            if (text.trim().startsWith("<?xml")) {
+                text = text.replace(Regex("<[^>]*>"), "")
+            }
 
             if (text.contains("\uFFFD") || text.contains("РЎ")) {
                 val inputStream2 = contentResolver.openInputStream(uri)
@@ -129,11 +131,12 @@ class ReaderActivity : AppCompatActivity() {
             }
             setupPager(text)
         } catch (e: Exception) {
-            Toast.makeText(this, "Ошибка TXT: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Ошибка TXT/FB: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun loadFb2(uri: Uri) {
+    // Для FB2 и FB3 (XML)
+    private fun loadFb2Fb3(uri: Uri) {
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
             val parser = XmlPullParserFactory.newInstance().newPullParser()
@@ -194,7 +197,7 @@ class ReaderActivity : AppCompatActivity() {
             }
 
         } catch (e: Exception) {
-            Toast.makeText(this, "Ошибка FB2: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Ошибка FB2/FB3: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
