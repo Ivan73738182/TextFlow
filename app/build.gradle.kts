@@ -13,6 +13,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        multiDexEnabled = true
     }
 
     signingConfigs {
@@ -32,6 +33,8 @@ android {
         }
     }
     compileOptions {
+        // Включаем десугаринг для Readium
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -48,9 +51,12 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.viewpager2:viewpager2:1.0.0")
 
-    // Readium Toolkit для EPUB (версия 3.0.2 существует в Maven Central)
+    // Readium Toolkit для EPUB
     implementation("org.readium.kotlin-toolkit:readium-shared:3.0.2")
     implementation("org.readium.kotlin-toolkit:readium-streamer:3.0.2")
     implementation("org.readium.kotlin-toolkit:readium-navigator:3.0.2")
     implementation("org.readium.kotlin-toolkit:readium-opds:3.0.2")
+
+    // Библиотека для десугаринга (требуется Readium)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
 }
