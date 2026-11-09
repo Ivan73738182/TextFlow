@@ -5,8 +5,12 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.text.Html
+import android.text.Spanned
+import android.text.method.LinkMovementMethod
 import android.view.KeyEvent
+import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.viewpager2.widget.ViewPager2
 import org.xmlpull.v1.XmlPullParser
@@ -19,6 +23,7 @@ class ReaderActivity : AppCompatActivity() {
     private var viewPager: ViewPager2? = null
     private var bookTitle: String = ""
     private lateinit var prefs: android.content.SharedPreferences
+    private val notesMap = mutableMapOf<String, String>() // Для сносок
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,7 +113,6 @@ class ReaderActivity : AppCompatActivity() {
         return fileName
     }
 
-    // Для TXT и FB (просто текст)
     private fun loadTxtOrFb(uri: Uri) {
         try {
             val inputStream = contentResolver.openInputStream(uri) ?: return
@@ -116,7 +120,6 @@ class ReaderActivity : AppCompatActivity() {
             var text = reader.readText()
             reader.close()
 
-            // Если это XML (FB), уберем теги на всякий случай
             if (text.trim().startsWith("<?xml")) {
                 text = text.replace(Regex("<[^>]*>"), "")
             }
@@ -135,9 +138,40 @@ class ReaderActivity : AppCompatActivity() {
         }
     }
 
-    // Для FB2 и FB3 (XML)
     private fun loadFb2Fb3(uri: Uri) {
         try {
+            // ПЕРВЫЙ ПРОХОД: ищем сноски
+            val inputStreamNotes = contentResolver.openInputStream(uri) ?: return
+            val parserNotes = XmlPullParserFactory.newInstance().newPullParser()
+            parserNotes.setInput(inputStreamNotes, null)
+            var eventNotes = parserNotes.eventType
+            var currentNoteId = ""
+            var currentNoteText = StringBuilder()
+            
+            while (eventNotes != XmlPullParser.END_DOCUMENT) {
+                if (eventNotes == XmlPullParser.START_TAG && parserNotes.name == "body") {
+                    val name = parserNotes.getAttributeValue(null, "name")
+                    if (name != "notes") {
+                        // Пропускаем основной текст, ищем только notes
+                    }
+                }
+                if (eventNotes == XmlPullParser.START_TAG && parserNotes.name == "section") {
+                    val id = parserNotes.getAttributeValue(null, "id")
+                    if (id != null) currentNoteId = id
+                }
+                if (eventNotes == XmlPullParser.TEXT && currentNoteId.isNotEmpty()) {
+                    currentNoteText.append(parserNotes.text)
+                }
+                if (eventNotes == XmlPullParser.END_TAG && parserNotes.name == "section" && currentNoteId.isNotEmpty()) {
+                    notesMap[currentNoteId] = currentNoteText.toString().trim()
+                    currentNoteId = ""
+                    currentNoteText = StringBuilder()
+                }
+                eventNotes = parserNotes.next()
+            }
+            inputStreamNotes.close()
+
+            // ВТОРОЙ ПРОХОД: читаем основной текст
             val inputStream = contentResolver.openInputStream(uri) ?: return
             val parser = XmlPullParserFactory.newInstance().newPullParser()
             parser.setInput(inputStream, null)
@@ -165,7 +199,15 @@ class ReaderActivity : AppCompatActivity() {
                             "stanza" -> htmlBuilder.append("<br>")
                             "v" -> htmlBuilder.append("<br>")
                             "epigraph" -> htmlBuilder.append("<br><i>")
-                            "a" -> htmlBuilder.append(" [")
+                            "a" -> {
+                                val href = parser.getAttributeValue(null, "href")
+                                if (href != null) {
+                                    val noteId = href.substringAfter("#")
+                                    htmlBuilder.append("<sup><a href=\"note:$noteId\">[${noteId}]</a></sup>")
+                                } else {
+                                    htmlBuilder.append(" [")
+                                }
+                            }
                         }
                     }
                 } else if (eventType == XmlPullParser.TEXT) {

@@ -14,7 +14,6 @@ class PageAdapter(
     textSizePx: Float
 ) : RecyclerView.Adapter<PageAdapter.PageViewHolder>() {
 
-    // Рассчитываем примерное количество символов на страницу
     private val pages: List<String> = calculatePages(text, screenWidthPx, screenHeightPx, textSizePx)
 
     class PageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -34,24 +33,14 @@ class PageAdapter(
 
     private fun calculatePages(fullText: String, width: Int, height: Int, textSize: Float): List<String> {
         val pages = mutableListOf<String>()
-        
-        // Отнимаем отступы (padding 16dp с каждой стороны) + примерная высота статус-бара
         val usableWidth = width - 64f 
         val usableHeight = height - 100f 
-
-        // Примерное количество символов в одной строке (ширина / средняя ширина символа)
-        // 0.55f — это эмпирический коэффициент для шрифта размера 18sp
         val charsPerLine = (usableWidth / (textSize * 0.55f)).toInt()
-        
-        // Количество строк на экране (высота / высота строки)
-        // lineSpacingExtra = 6dp, значит строка занимает textSize + 6dp (примерно 1.4 от размера шрифта)
         val linesPerPage = (usableHeight / (textSize * 1.6f)).toInt()
-
-        // Максимальное количество символов на страницу
         val maxCharsPerPage = charsPerLine * linesPerPage
 
         if (maxCharsPerPage <= 0) {
-            pages.add(fullText) // Защита от деления на ноль
+            pages.add(fullText)
             return pages
         }
 
@@ -60,17 +49,18 @@ class PageAdapter(
             var end = start + maxCharsPerPage
             if (end > fullText.length) end = fullText.length
             
-            // Ищем ближайший пробел или перенос строки, чтобы не рвать слова
-            var lastSpace = -1
-            for (i in end downTo start) {
-                if (i < fullText.length && (fullText[i] == ' ' || fullText[i] == '\n')) {
-                    lastSpace = i
-                    break
+            // Ищем последний пробел или перенос строки СТРОГО ДО лимита
+            if (end < fullText.length) {
+                var lastBreak = -1
+                for (i in end downTo start) {
+                    if (i < fullText.length && (fullText[i] == ' ' || fullText[i] == '\n')) {
+                        lastBreak = i
+                        break
+                    }
                 }
-            }
-            
-            if (lastSpace != -1 && lastSpace > start) {
-                end = lastSpace
+                if (lastBreak > start) {
+                    end = lastBreak
+                }
             }
             
             pages.add(fullText.substring(start, end).trim())
