@@ -1,9 +1,6 @@
 package com.ivangames.textflow
 
 import android.text.Html
-import android.text.Layout
-import android.text.StaticLayout
-import android.text.TextPaint
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -17,7 +14,7 @@ class PageAdapter(
     textSizePx: Float
 ) : RecyclerView.Adapter<PageAdapter.PageViewHolder>() {
 
-    private val pages: List<String> = splitTextIntoPages(fullText, screenWidthPx, screenHeightPx, textSizePx)
+    private val pages: List<String> = splitText(fullText, screenWidthPx, screenHeightPx, textSizePx)
 
     class PageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val textView: TextView = view.findViewById(R.id.pageTextView)
@@ -36,33 +33,33 @@ class PageAdapter(
 
     override fun getItemCount() = pages.size
 
-    private fun splitTextIntoPages(text: String, width: Int, height: Int, textSize: Float): List<String> {
+    private fun splitText(text: String, width: Int, height: Int, textSize: Float): List<String> {
         val pages = mutableListOf<String>()
         if (text.isEmpty()) return pages
 
-        val paint = TextPaint().apply {
-            this.textSize = textSize
-            isAntiAlias = true
-        }
-        
-        val availableWidth = width - 64 // Отступы
-        val availableHeight = height - 100 // Отступы + статус-бар
+        val usableWidth = width - 64f
+        val usableHeight = height - 100f
+        val charsPerLine = (usableWidth / (textSize * 0.55f)).toInt().coerceAtLeast(10)
+        val linesPerPage = (usableHeight / (textSize * 1.6f)).toInt().coerceAtLeast(5)
+        val maxCharsPerPage = charsPerLine * linesPerPage
 
         var start = 0
         while (start < text.length) {
-            // Создаем "виртуальный" лейаут, чтобы узнать, сколько влезет
-            val layout = StaticLayout.Builder.obtain(text, start, text.length, paint, availableWidth)
-                .setIncludePad(false)
-                .setLineSpacing(6f, 1f) // lineSpacingExtra
-                .build()
-
-            // Получаем номер последней строки, которая помещается по высоте
-            val lastLine = layout.getLineForVertical(availableHeight)
+            var end = start + maxCharsPerPage
+            if (end > text.length) end = text.length
             
-            // Получаем символ, на котором заканчивается эта строка
-            var end = layout.getLineEnd(lastLine)
-            
-            if (end <= start) end = start + 100 // Защита от бесконечного цикла
+            if (end < text.length) {
+                var lastSpace = -1
+                for (i in end downTo start) {
+                    if (i < text.length && (text[i] == ' ' || text[i] == '\n')) {
+                        lastSpace = i
+                        break
+                    }
+                }
+                if (lastSpace > start) {
+                    end = lastSpace
+                }
+            }
             
             pages.add(text.substring(start, end).trim())
             start = end
